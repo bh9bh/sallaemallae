@@ -1,0 +1,23 @@
+name: sallaemallae
+description: A rental platform MVP
+publish_to: "none"
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  dio: ^5.5.0
+  image_picker: ^1.0.7
+  shared_preferences: ^2.3.2
+  file_picker: ^8.0.0 # 👈 추가 (Windows/데스크톱 파일 선택)
+
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
