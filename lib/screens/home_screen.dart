@@ -10,7 +10,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _api = ApiService();
+  // ✅ 싱글턴 사용: new 대신 instance
+  final ApiService _api = ApiService.instance;
 
   bool _loading = true;
   String? _error;
@@ -20,6 +21,14 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  // ---- Safe nav helpers ----
+  void _push(String route, {Object? args}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.pushNamed(context, route, arguments: args);
+    });
   }
 
   Future<void> _load() async {
@@ -44,7 +53,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _goAdd() async {
-    // 등록 화면으로 이동 → true 반환 시 자동 새로고침
+    // ✅ 관리자만 접근
+    if (!_api.isAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('관리자만 상품을 등록할 수 있어요.')),
+      );
+      return;
+    }
     final result = await Navigator.pushNamed(context, '/add_product');
     if (result == true && mounted) {
       await _load();
@@ -55,12 +70,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openDetail(Product p) {
-    Navigator.pushNamed(context, '/product', arguments: p.id);
+    _push('/product', args: p.id);
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isAdmin = _api.isAdmin;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Sallae Mallae'),
@@ -68,15 +85,27 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             tooltip: '내 대여 내역',
             icon: const Icon(Icons.receipt_long_outlined),
-            onPressed: () => Navigator.pushNamed(context, '/mypage'),
+            onPressed: () => _push('/mypage'),
           ),
+          // ✅ 관리자 빠른 이동(선택): 보이면 편함
+          if (isAdmin)
+            IconButton(
+              tooltip: '관리자: 승인 대기',
+              icon: const Icon(Icons.admin_panel_settings_outlined),
+              onPressed: () => _push('/admin/pending'),
+            ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _goAdd,
-        icon: const Icon(Icons.add),
-        label: const Text('상품 등록'),
-      ),
+
+      // ✅ 관리자에게만 등록 FAB 노출
+      floatingActionButton: isAdmin
+          ? FloatingActionButton.extended(
+              onPressed: _goAdd,
+              icon: const Icon(Icons.add),
+              label: const Text('상품 등록'),
+            )
+          : null,
+
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
@@ -116,7 +145,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                   const SizedBox(height: 10),
                                   Text(
-                                    '오른쪽 아래 + 버튼으로 상품을 등록해보세요.',
+                                    isAdmin
+                                        ? '오른쪽 아래 + 버튼으로 상품을 등록해보세요.'
+                                        : '관리자가 상품을 등록하면 여기에서 볼 수 있어요.',
                                     style: TextStyle(color: theme.colorScheme.outline),
                                     textAlign: TextAlign.center,
                                   ),
@@ -223,16 +254,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ✅ 천단위 콤마 버그 수정: 오른쪽부터 3자리마다 콤마
   String _formatNumber(num n) {
-    final s = n.toStringAsFixed(0);
-    // 간단한 천단위 구분
+    final negative = n < 0;
+    final s = n.abs().toStringAsFixed(0);
+    final chars = s.split('').reversed.toList();
     final buf = StringBuffer();
-    for (int i = 0; i < s.length; i++) {
-      final idx = s.length - i;
-      buf.write(s[i]);
-      final rem = (idx - 1);
-      if (rem > 0 && rem % 3 == 0) buf.write(',');
+    for (int i = 0; i < chars.length; i++) {
+      if (i != 0 && i % 3 == 0) buf.write(',');
+      buf.write(chars[i]);
     }
-    return buf.toString();
+    final withCommas = buf.toString().split('').reversed.join();
+    return negative ? '-$withCommas' : withCommas;
   }
 }

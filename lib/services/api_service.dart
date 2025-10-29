@@ -92,7 +92,7 @@ class ApiService {
       _token = t;
       _dio.options.headers["Authorization"] = "Bearer $t";
       print("✅ [ApiService] token restored");
-      // 토큰이 복구되면 사용자도 갱신 시도 (실패해도 앱은 계속)
+      // 토큰 복구 시 사용자 정보 갱신 시도
       await refreshMe(silent: true);
     } else {
       _token = null;
@@ -130,19 +130,18 @@ class ApiService {
       final res = await _dio.get("/auth/me");
       final body = (res.data as Map).cast<String, dynamic>();
       _me = body;
-      print("✅ [me] ${_me}");
+      print("✅ [/auth/me] $_me");
       return true;
     } on DioException catch (e) {
       if (!silent) {
-        print("❌ [me] ${_extractMessage(e)} "
-            "status:${e.response?.statusCode} data:${e.response?.data}");
+        print("❌ [/auth/me] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       }
       if (e.response?.statusCode == 401) {
         await clearToken();
       }
       return false;
     } catch (e) {
-      if (!silent) print("❌ [me] Unknown error: $e");
+      if (!silent) print("❌ [/auth/me] Unknown error: $e");
       return false;
     }
   }
@@ -156,7 +155,7 @@ class ApiService {
   // ---------------- Auth ----------------
   Future<String?> login(String email, String password) async {
     try {
-      // ⬇ OAuth2PasswordRequestForm 규격 (x-www-form-urlencoded)
+      // OAuth2PasswordRequestForm 규격 (x-www-form-urlencoded)
       final res = await _dio.post(
         "/auth/login",
         data: {
@@ -171,13 +170,12 @@ class ApiService {
       final token = res.data["access_token"] as String?;
       if (token != null && token.isNotEmpty) {
         await saveToken(token);
-        // ⬇ 토큰 저장 직후 사용자 정보 당겨와서 is_admin까지 확보
+        // 토큰 저장 직후 프로필 동기화 (is_admin 포함)
         await refreshMe(silent: true);
       }
       return token;
     } on DioException catch (e) {
-      print("❌ [login] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [login] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return null;
     } catch (e) {
       print("❌ [login] Unknown error: $e");
@@ -194,8 +192,7 @@ class ApiService {
       );
       return true;
     } on DioException catch (e) {
-      print("❌ [register] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [register] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return false;
     } catch (e) {
       print("❌ [register] Unknown error: $e");
@@ -212,8 +209,7 @@ class ApiService {
           .toList();
       return list;
     } on DioException catch (e) {
-      print("❌ [getProducts] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [getProducts] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return [];
     } catch (e) {
       print("❌ [getProducts] Unknown error: $e");
@@ -226,8 +222,7 @@ class ApiService {
       final res = await _dio.get("/products/$id");
       return Product.fromJson(res.data as Map<String, dynamic>);
     } on DioException catch (e) {
-      print("❌ [getProduct] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [getProduct] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return null;
     } catch (e) {
       print("❌ [getProduct] Unknown error: $e");
@@ -262,8 +257,7 @@ class ApiService {
       );
       return true;
     } on DioException catch (e) {
-      print("❌ [createProduct] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [createProduct] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return false;
     } catch (e) {
       print("❌ [createProduct] Unknown error: $e");
@@ -304,8 +298,7 @@ class ApiService {
 
       return res.statusCode != null && res.statusCode! >= 200 && res.statusCode! < 300;
     } on DioException catch (e) {
-      print("❌ [createProductWithImage] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [createProductWithImage] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return false;
     } catch (e) {
       print("❌ [createProductWithImage] Unknown error: $e");
@@ -329,10 +322,9 @@ class ApiService {
         },
         options: Options(headers: {"Content-Type": "application/json"}),
       );
-      return res.data as Map<String, dynamic>;
+      return (res.data as Map).cast<String, dynamic>();
     } on DioException catch (e) {
-      print("❌ [createRental] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [createRental] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return null;
     } catch (e) {
       print("❌ [createRental] Unknown error: $e");
@@ -357,8 +349,7 @@ class ApiService {
       }
       return false;
     } on DioException catch (e) {
-      print("❌ [checkAvailability] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [checkAvailability] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return false;
     } catch (e) {
       print("❌ [checkAvailability] Unknown error: $e");
@@ -385,8 +376,7 @@ class ApiService {
         return {"start": start, "end": end};
       }).toList();
     } on DioException catch (e) {
-      print("❌ [getBlockedDates] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [getBlockedDates] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return [];
     } catch (e) {
       print("❌ [getBlockedDates] Unknown error: $e");
@@ -400,8 +390,7 @@ class ApiService {
       final res = await _dio.get("/rentals/$rentalId");
       return (res.data as Map).cast<String, dynamic>();
     } on DioException catch (e) {
-      print("❌ [getRental] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [getRental] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return null;
     } catch (e) {
       print("❌ [getRental] Unknown error: $e");
@@ -428,8 +417,7 @@ class ApiService {
       );
       return (res.data as List).cast<Map<String, dynamic>>();
     } on DioException catch (e) {
-      print("❌ [getMyRentals] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [getMyRentals] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return [];
     } catch (e) {
       print("❌ [getMyRentals] Unknown error: $e");
@@ -458,8 +446,7 @@ class ApiService {
       final res = await _dio.get("/rentals/me/page", queryParameters: qp);
       return (res.data as Map).cast<String, dynamic>();
     } on DioException catch (e) {
-      print("❌ [getMyRentalsPaged] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [getMyRentalsPaged] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return null;
     } catch (e) {
       print("❌ [getMyRentalsPaged] Unknown error: $e");
@@ -473,8 +460,7 @@ class ApiService {
       final res = await _dio.patch("/rentals/$rentalId/cancel");
       return (res.data as Map).cast<String, dynamic>();
     } on DioException catch (e) {
-      print("❌ [cancelRental] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [cancelRental] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return null;
     } catch (e) {
       print("❌ [cancelRental] Unknown error: $e");
@@ -488,8 +474,7 @@ class ApiService {
       final res = await _dio.patch("/rentals/$rentalId/request-return");
       return (res.data as Map).cast<String, dynamic>();
     } on DioException catch (e) {
-      print("❌ [requestReturn] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [requestReturn] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return null;
     } catch (e) {
       print("❌ [requestReturn] Unknown error: $e");
@@ -503,8 +488,7 @@ class ApiService {
       final res = await _dio.patch("/rentals/$rentalId/confirm-return");
       return (res.data as Map).cast<String, dynamic>();
     } on DioException catch (e) {
-      print("❌ [confirmReturn] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [confirmReturn] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return null;
     } catch (e) {
       print("❌ [confirmReturn] Unknown error: $e");
@@ -527,8 +511,7 @@ class ApiService {
       );
       return true;
     } on DioException catch (e) {
-      print("❌ [uploadPhoto] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [uploadPhoto] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return false;
     } catch (e) {
       print("❌ [uploadPhoto] Unknown error: $e");
@@ -541,8 +524,7 @@ class ApiService {
       final res = await _dio.get("/photos/by-rental/$rentalId");
       return (res.data as List).cast<Map<String, dynamic>>();
     } on DioException catch (e) {
-      print("❌ [getPhotosByRental] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [getPhotosByRental] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return [];
     } catch (e) {
       print("❌ [getPhotosByRental] Unknown error: $e");
@@ -555,8 +537,7 @@ class ApiService {
       final res = await _dio.delete("/photos/$photoId");
       return (res.statusCode == 204) || (res.statusCode == 200);
     } on DioException catch (e) {
-      print("❌ [deletePhoto] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [deletePhoto] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return false;
     } catch (e) {
       print("❌ [deletePhoto] Unknown error: $e");
@@ -580,8 +561,7 @@ class ApiService {
       );
       return (res.data as Map).cast<String, dynamic>();
     } on DioException catch (e) {
-      print("❌ [simulatePayment] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [simulatePayment] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return null;
     } catch (e) {
       print("❌ [simulatePayment] Unknown error: $e");
@@ -621,8 +601,7 @@ class ApiService {
       );
       return (res.data as Map).cast<String, dynamic>();
     } on DioException catch (e) {
-      print("❌ [createReview] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [createReview] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return null;
     } catch (e) {
       print("❌ [createReview] Unknown error: $e");
@@ -635,8 +614,7 @@ class ApiService {
       final res = await _dio.get("/reviews/by-product/$productId");
       return (res.data as List).cast<Map<String, dynamic>>();
     } on DioException catch (e) {
-      print("❌ [getReviewsByProduct] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [getReviewsByProduct] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return [];
     } catch (e) {
       print("❌ [getReviewsByProduct] Unknown error: $e");
@@ -644,17 +622,70 @@ class ApiService {
     }
   }
 
+  // ⭐ Added alias: UI 코드에서 getReviews()를 기대하는 경우 지원
+  Future<List<Map<String, dynamic>>> getReviews(int productId) async {
+    return await getReviewsByProduct(productId);
+  }
+
+  /// ⭐ 상품별 평점 요약 조회 (avg, count)
+  /// 1) 백엔드 summary 엔드포인트가 있으면 사용
+  /// 2) 없으면 전체 리뷰를 불러와 로컬에서 계산
+  Future<Map<String, dynamic>?> getProductRatingSummary(int productId) async {
+    try {
+      final res = await _dio.get("/reviews/summary/$productId");
+      final data = (res.data as Map).cast<String, dynamic>();
+
+      final avg = (data['avg'] as num?)?.toDouble() ?? 0.0;
+      final count = (data['count'] as num?)?.toInt() ?? 0;
+      return {"avg": avg, "count": count};
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
+        // ✅ summary API 없으면 폴백
+        return await _calcRatingSummaryFallback(productId);
+      }
+      print("❌ [getProductRatingSummary] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
+      return null;
+    } catch (e) {
+      print("❌ [getProductRatingSummary] Unknown error: $e");
+      return null;
+    }
+  }
+
+  /// 🔁 summary 엔드포인트가 없을 때 fallback 계산
+  Future<Map<String, dynamic>?> _calcRatingSummaryFallback(int productId) async {
+    try {
+      final list = await getReviewsByProduct(productId);
+      if (list.isEmpty) return {"avg": 0.0, "count": 0};
+
+      int count = 0;
+      double sum = 0.0;
+
+      for (final r in list) {
+        final rt = r['rating'];
+        if (rt is num) {
+          sum += rt.toDouble();
+          count++;
+        }
+      }
+
+      if (count == 0) return {"avg": 0.0, "count": 0};
+      return {"avg": sum / count, "count": count};
+    } catch (e) {
+      print("❌ [_calcRatingSummaryFallback] $e");
+      return null;
+    }
+  }
+
   // ---------------- Admin (관리자) ----------------
   Future<List<Map<String, dynamic>>> adminListPendingRentals() async {
     try {
       final res = await _dio.get("/admin/rentals/pending");
-    return (res.data as List).cast<Map<String, dynamic>>();
+      return (res.data as List).cast<Map<String, dynamic>>();
     } on DioException catch (e) {
       if (e.response?.statusCode == 403) {
         throw ApiForbiddenError();
       }
-      print("❌ [adminListPendingRentals] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [adminListPendingRentals] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return [];
     } catch (e) {
       print("❌ [adminListPendingRentals] Unknown error: $e");
@@ -674,8 +705,7 @@ class ApiService {
       );
       return (res.data as Map).cast<String, dynamic>();
     } on DioException catch (e) {
-      print("❌ [adminUpdateRentalStatus] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [adminUpdateRentalStatus] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return null;
     } catch (e) {
       print("❌ [adminUpdateRentalStatus] Unknown error: $e");
@@ -691,8 +721,7 @@ class ApiService {
       if (e.response?.statusCode == 403) {
         throw ApiForbiddenError();
       }
-      print("❌ [adminApproveRental] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [adminApproveRental] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return false;
     } catch (e) {
       print("❌ [adminApproveRental] Unknown error: $e");
@@ -708,8 +737,7 @@ class ApiService {
       if (e.response?.statusCode == 403) {
         throw ApiForbiddenError();
       }
-      print("❌ [adminRejectRental] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [adminRejectRental] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return false;
     } catch (e) {
       print("❌ [adminRejectRental] Unknown error: $e");
@@ -722,14 +750,115 @@ class ApiService {
       final res = await _dio.delete("/admin/products/$productId");
       return res.statusCode != null && res.statusCode! >= 200 && res.statusCode! < 300;
     } on DioException catch (e) {
-      print("❌ [adminDeleteProduct] ${_extractMessage(e)} "
-          "status:${e.response?.statusCode} data:${e.response?.data}");
+      print("❌ [adminDeleteProduct] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
       return false;
     } catch (e) {
       print("❌ [adminDeleteProduct] Unknown error: $e");
       return false;
     }
   }
+  // ---------------- Admin: Reviews (리뷰 관리) ----------------
+
+  /// 관리자: 리뷰 목록 조회
+  /// 현재 백엔드에 /admin/reviews 없음 → 404이면 /reviews/by-product/{product_id}로 폴백
+  Future<dynamic> adminGetReviews({int? productId, int? rating}) async {
+    try {
+      final qp = <String, dynamic>{};
+      if (productId != null) qp['product_id'] = productId;
+      if (rating != null) qp['rating'] = rating;
+
+      final res = await _dio.get(
+        "/admin/reviews",
+        queryParameters: qp.isEmpty ? null : qp,
+      );
+      return res.data; // (미래에 엔드포인트가 생기면 그대로 사용)
+    } on DioException catch (e) {
+      // ✅ 404: 현재 엔드포인트가 없으므로 폴백
+      if (e.response?.statusCode == 404) {
+        if (productId != null) {
+          try {
+            final alt = await _dio.get("/reviews/by-product/$productId");
+            return alt.data; // List 형태
+          } on DioException catch (e2) {
+            print("❌ [fallback by-product] ${_extractMessage(e2)} "
+                  "status:${e2.response?.statusCode} data:${e2.response?.data}");
+            return null;
+          }
+        }
+        // productId가 없으면 폴백 불가
+        return [];
+      }
+      if (e.response?.statusCode == 403) {
+        throw ApiForbiddenError();
+      }
+      print("❌ [adminGetReviews] ${_extractMessage(e)}  "
+            "status:${e.response?.statusCode} data:${e.response?.data}");
+      return null;
+    } catch (e) {
+      print("❌ [adminGetReviews] Unknown error: $e");
+      return null;
+    }
+  }
+
+
+  /// 관리자: 리뷰 삭제
+  Future<bool> adminDeleteReview(int reviewId) async {
+    try {
+      final res = await _dio.delete("/admin/reviews/$reviewId");
+      return res.statusCode != null && res.statusCode! >= 200 && res.statusCode! < 300;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 403) {
+        throw ApiForbiddenError();
+      }
+      print("❌ [adminDeleteReview] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
+      return false;
+    } catch (e) {
+      print("❌ [adminDeleteReview] Unknown error: $e");
+      return false;
+    }
+  }
+
+    /// 관리자: 리뷰 목록 조회 (화면에서 List<Map<String,dynamic>> 기대)
+  /// - 백엔드가 배열로 주면 그대로 반환
+  /// - {"items":[...], "next":"..."} 형태면 items만 꺼내 반환
+  Future<List<Map<String, dynamic>>> adminListReviews({
+    int? productId,
+    int? rating,
+    int? limit,
+    String? cursor,
+  }) async {
+    try {
+      final qp = <String, dynamic>{};
+      if (productId != null) qp['product_id'] = productId;
+      if (rating != null) qp['rating'] = rating;
+      if (limit != null) qp['limit'] = limit;
+      if (cursor != null && cursor.isNotEmpty) qp['cursor'] = cursor;
+
+      final res = await _dio.get(
+        "/admin/reviews",
+        queryParameters: qp.isEmpty ? null : qp,
+      );
+
+      final data = res.data;
+      if (data is List) {
+        return data.cast<Map<String, dynamic>>();
+      }
+      if (data is Map && data['items'] is List) {
+        return (data['items'] as List).cast<Map<String, dynamic>>();
+      }
+      return [];
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 403) {
+        throw ApiForbiddenError();
+      }
+      print("❌ [adminListReviews] ${_extractMessage(e)} status:${e.response?.statusCode} data:${e.response?.data}");
+      return [];
+    } catch (e) {
+      print("❌ [adminListReviews] Unknown error: $e");
+      return [];
+    }
+  }
+
 }
 
 // ✅ 403 구분용 커스텀 에러

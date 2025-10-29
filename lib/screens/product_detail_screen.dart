@@ -10,16 +10,20 @@ class ProductDetailScreen extends StatefulWidget {
 }
 
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
-  final _api = ApiService();
+  final ApiService _api = ApiService.instance;
 
   Product? _product;
   bool _loading = true;
   String? _error;
 
+  // ⭐ 리뷰 상태
+  List<Map<String, dynamic>> _reviews = [];
+  double _avgRating = 0.0;
+
   @override
   void initState() {
     super.initState();
-    // arguments는 build 이후 접근하는 게 안전
+    // arguments는 build 이후 접근이 안전
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
@@ -31,20 +35,20 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
     final args = ModalRoute.of(context)?.settings.arguments;
 
-    // 인자로 product 객체나 id를 둘 다 지원
+    // 인자로 product 객체나 id 둘 다 지원
     int? id;
     if (args is int) {
       id = args;
     } else if (args is Map) {
       if (args['product'] is Product) {
         _product = args['product'] as Product;
-        setState(() => _loading = false);
-        return;
+        id = _product!.id;
+      } else if (args['id'] is int) {
+        id = args['id'] as int;
       }
-      if (args['id'] is int) id = args['id'] as int;
     }
 
-    if (id == null) {
+    if (id == null && _product == null) {
       setState(() {
         _loading = false;
         _error = '잘못된 접근입니다. (상품 ID 없음)';
@@ -53,19 +57,34 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     }
 
     try {
-      final p = await _api.getProduct(id);
-      if (!mounted) return;
-      if (p == null) {
-        setState(() {
-          _error = '상품을 불러오지 못했습니다.';
-          _loading = false;
-        });
-      } else {
-        setState(() {
-          _product = p;
-          _loading = false;
-        });
+      // 1) 상품 정보
+      if (_product == null) {
+        final p = await _api.getProduct(id!);
+        if (!mounted) return;
+        if (p == null) {
+          setState(() {
+            _error = '상품을 불러오지 못했습니다.';
+            _loading = false;
+          });
+          return;
+        }
+        _product = p;
       }
+
+      // 2) 리뷰 불러오기
+      final reviews = await _api.getReviewsByProduct(_product!.id);
+      double avg = 0;
+      if (reviews.isNotEmpty) {
+        final sum = reviews.fold<num>(0, (acc, e) => acc + (e['rating'] as num? ?? 0));
+        avg = (sum / reviews.length).toDouble();
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _reviews = reviews;
+        _avgRating = avg;
+        _loading = false;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -73,6 +92,68 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         _loading = false;
       });
     }
+  }
+
+  // ----- UI helpers -----
+  String _fmtInt(num n) => n.toStringAsFixed(0);
+
+  Widget _buildStars(double rating, {double size = 18}) {
+    // 반올림하여 꽉찬/반쪽/빈 별 계산
+    final full = rating.floor();
+    final hasHalf = (rating - full) >= 0.5 && (rating - full) < 1.0;
+    final empty = 5 - full - (hasHalf ? 1 : 0);
+
+    final stars = <Widget>[];
+    for (int i = 0; i < full; i++) {
+      stars.add(Icon(Icons.star, size: size, color: Colors.amber));
+    }
+    if (hasHalf) {
+      stars.add(Icon(Icons.star_half, size: size, color: Colors.amber));
+    }
+    for (int i = 0; i < empty; i++) {
+      stars.add(Icon(Icons.star_border, size: size, color: Colors.amber));
+    }
+    return Row(mainAxisSize: MainAxisSize.min, children: stars);
+  }
+
+  void _showAllReviewsBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: _reviews.isEmpty
+                ? SizedBox(
+                    height: 160,
+                    child: Center(
+                      child: Text("아직 등록된 후기가 없습니다.", style: TextStyle(color: cs.outline)),
+                    ),
+                  )
+                : SizedBox(
+                    height: MediaQuery.of(ctx).size.height * 0.7,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("전체 후기", style: Theme.of(ctx).textTheme.titleMedium),
+                        const SizedBox(height: 8),
+                        Expanded(
+                          child: ListView.separated(
+                            itemCount: _reviews.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (_, i) => _ReviewTile(map: _reviews[i]),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -139,6 +220,32 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                 ],
                               ),
 
+                              const SizedBox(height: 12),
+
+                              // ⭐ 평균 별점 + 리뷰 수
+                              _reviews.isEmpty
+                                  ? Text(
+                                      "아직 후기가 없습니다.",
+                                      style: TextStyle(color: theme.colorScheme.outline),
+                                    )
+                                  : Row(
+                                      children: [
+                                        _buildStars(double.parse((_avgRating).toStringAsFixed(1)), size: 20),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          "${_avgRating.toStringAsFixed(1)} (${_reviews.length})",
+                                          style: theme.textTheme.bodyMedium?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        TextButton(
+                                          onPressed: _showAllReviewsBottomSheet,
+                                          child: const Text("후기 더보기"),
+                                        ),
+                                      ],
+                                    ),
+
                               const SizedBox(height: 16),
 
                               // 가격 섹션
@@ -158,6 +265,26 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                   style: theme.textTheme.bodyMedium,
                                 ),
                                 const SizedBox(height: 16),
+                              ],
+
+                              // 최근 리뷰 3개 미리보기
+                              if (_reviews.isNotEmpty) ...[
+                                Row(
+                                  children: [
+                                    Text('최근 후기', style: theme.textTheme.titleMedium),
+                                    const Spacer(),
+                                    TextButton(
+                                      onPressed: _showAllReviewsBottomSheet,
+                                      child: const Text('모두 보기'),
+                                    )
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                ..._reviews.take(3).map((m) => Padding(
+                                      padding: const EdgeInsets.only(bottom: 8.0),
+                                      child: _ReviewTile(map: m),
+                                    )),
+                                const SizedBox(height: 8),
                               ],
 
                               // 액션 버튼들
@@ -180,9 +307,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: OutlinedButton.icon(
-                                      onPressed: () {
-                                        Navigator.pop(context);
-                                      },
+                                      onPressed: () => Navigator.pop(context),
                                       icon: const Icon(Icons.arrow_back),
                                       label: const Text('뒤로'),
                                     ),
@@ -205,7 +330,7 @@ class _ProductImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final api = ApiService();
+    final api = ApiService.instance;
 
     final resolved = api.absolute(url ?? '');
 
@@ -223,7 +348,7 @@ class _ProductImage extends StatelessWidget {
                 ),
               )
             : Hero(
-                tag: 'product:${resolved}',
+                tag: 'product:$resolved',
                 child: Image.network(
                   resolved,
                   fit: BoxFit.cover,
@@ -247,7 +372,7 @@ class _PriceRow extends StatelessWidget {
   final double deposit;
   const _PriceRow({required this.daily, required this.deposit});
 
-  String _fmt(num v) => v.toStringAsFixed(v.truncateToDouble() == v ? 0 : 0); // 정수 표기
+  String _fmt(num v) => v.toStringAsFixed(0); // 정수 표기
 
   @override
   Widget build(BuildContext context) {
@@ -292,6 +417,64 @@ class _PriceRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ReviewTile extends StatelessWidget {
+  final Map<String, dynamic> map;
+  const _ReviewTile({required this.map});
+
+  String _ymd(String? iso) {
+    if (iso == null || iso.isEmpty) return '';
+    return iso.length >= 10 ? iso.substring(0, 10) : iso;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final rating = (map['rating'] as num?)?.toInt() ?? 0;
+    final comment = (map['comment'] as String?)?.trim();
+    final user = (map['user_name'] as String?) ?? (map['user']?.toString() ?? '사용자');
+    final created = _ymd(map['created_at']?.toString());
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 상단: 별점 + 사용자 + 날짜
+          Row(
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(
+                  5,
+                  (i) => Icon(
+                    i < rating ? Icons.star : Icons.star_border,
+                    size: 16,
+                    color: Colors.amber,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(user, style: const TextStyle(fontWeight: FontWeight.w600)),
+              const Spacer(),
+              if (created.isNotEmpty)
+                Text(created, style: TextStyle(color: cs.outline, fontSize: 12)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            (comment == null || comment.isEmpty) ? "내용 없음" : comment,
+            style: const TextStyle(fontSize: 14),
+          ),
+        ],
+      ),
     );
   }
 }

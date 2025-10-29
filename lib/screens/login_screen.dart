@@ -15,28 +15,22 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _loading = false;
   String? _error;
+  bool _navigated = false; // ✅ 중복 네비 방지
 
   ApiService get _api => ApiService.instance;
 
   @override
   void initState() {
     super.initState();
-    _autoNavigateIfTokenExists();
+    // 프레임 이후 안전하게 자동 이동 시도
+    Future.microtask(_autoNavigateIfTokenExists);
   }
 
   // ----- Navigation helpers -----
-  void _pushReplace(String route) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      Navigator.pushReplacementNamed(context, route);
-    });
-  }
-
-  void _push(String route) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      Navigator.pushNamed(context, route);
-    });
+  void _replaceAllTo(String route) {
+    if (_navigated || !mounted) return;
+    _navigated = true;
+    Navigator.pushNamedAndRemoveUntil(context, route, (r) => false);
   }
 
   Future<void> _routeAfterAuth() async {
@@ -45,10 +39,9 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     if (ok && _api.isAdmin) {
-      _pushReplace('/admin/pending');
+      _replaceAllTo('/admin/pending'); // ✅ 관리자 ⇒ 관리자 홈
     } else if (ok) {
-      // 일반 사용자는 마이페이지가 더 직관적이면 /mypage, 아니면 /home
-      _pushReplace('/mypage');
+      _replaceAllTo('/home');          // ✅ 일반 사용자 ⇒ 홈
     } else {
       // 토큰이 무효했을 수도 있으니 로그인 화면 유지
       setState(() {
@@ -58,9 +51,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _autoNavigateIfTokenExists() async {
-    // main()에서 initToken()이 선행된 상태 가정
-    final t = _api.token;
-    if (t != null && t.isNotEmpty) {
+    if (!mounted) return;
+    if (_api.isAuthenticated) {
       await _routeAfterAuth();
     }
   }
@@ -132,6 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextFormField(
                       controller: _email,
                       keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: '이메일',
                         border: OutlineInputBorder(),
@@ -139,7 +132,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       validator: (v) {
                         final value = v?.trim() ?? '';
                         if (value.isEmpty) return '이메일을 입력해주세요.';
-                        if (!value.contains('@')) return '올바른 이메일 형식이 아닙니다.';
+                        if (!value.contains('@') || !value.contains('.')) {
+                          return '올바른 이메일 형식이 아닙니다.';
+                        }
                         return null;
                       },
                     ),
@@ -149,6 +144,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextFormField(
                       controller: _password,
                       obscureText: true,
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) {
+                        if (!_loading) _submit(); // 엔터로 제출
+                      },
                       decoration: const InputDecoration(
                         labelText: '비밀번호',
                         border: OutlineInputBorder(),
@@ -186,7 +185,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
                     const SizedBox(height: 16),
                     TextButton(
-                      onPressed: _loading ? null : () => _push('/register'),
+                      onPressed: _loading
+                          ? null
+                          : () => Navigator.pushNamed(context, '/register'),
                       child: const Text('아직 계정이 없으신가요? 회원가입'),
                     ),
                   ],

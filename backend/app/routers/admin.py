@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 
 from ..database import get_db
 from ..deps import get_current_user
@@ -60,3 +60,53 @@ def reject(
     r.status = models.RentalStatus.REJECTED
     db.add(r); db.commit(); db.refresh(r)
     return schemas.RentalOut.model_validate(r)
+
+# -------------------------------------------------------------------------
+# ✅ 관리자: 리뷰 관리
+# 1) 목록 조회: GET /admin/reviews?product_id=&rating=
+# 2) 삭제:     DELETE /admin/reviews/{review_id}
+# -------------------------------------------------------------------------
+
+@router.get("/reviews", response_model=List[schemas.ReviewOut])
+def admin_list_reviews(
+    product_id: Optional[int] = None,
+    rating: Optional[int] = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    관리자 리뷰 목록.
+    - product_id 지정 시 해당 상품 리뷰만
+    - rating 지정 시 해당 평점만
+    - 둘 다 없으면 전체 리뷰
+    """
+    _assert_admin(user)
+
+    q = db.query(models.Review)
+    if product_id is not None:
+        q = q.filter(models.Review.product_id == product_id)
+    if rating is not None:
+        q = q.filter(models.Review.rating == rating)
+
+    rows = q.order_by(models.Review.id.desc()).all()
+    return [schemas.ReviewOut.model_validate(r) for r in rows]
+
+@router.delete("/reviews/{review_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_review(
+    review_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    관리자 리뷰 삭제 (하드 삭제).
+    필요 시 soft-delete로 변경 가능: 컬럼 is_deleted 추가 후 True로 세팅.
+    """
+    _assert_admin(user)
+
+    review = db.get(models.Review, review_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="Review not found")
+
+    db.delete(review)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

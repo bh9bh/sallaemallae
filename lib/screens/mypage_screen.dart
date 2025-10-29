@@ -9,7 +9,8 @@ class MyPageScreen extends StatefulWidget {
 }
 
 class _MyPageScreenState extends State<MyPageScreen> {
-  final _api = ApiService();
+  // ✅ 싱글턴 통일
+  final ApiService _api = ApiService.instance;
 
   bool _loading = true;
   String? _error;
@@ -29,6 +30,14 @@ class _MyPageScreenState extends State<MyPageScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  // ---- Safe nav helper ----
+  void _pushReplaceAll(String route) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(context, route, (r) => false);
+    });
   }
 
   Future<void> _load() async {
@@ -72,8 +81,8 @@ class _MyPageScreenState extends State<MyPageScreen> {
       _loadingPhotos.clear();
       _error = "로그인이 필요합니다. 먼저 로그인해주세요.";
     });
-    // 로그인 화면으로 이동 (기존 스택 제거)
-    Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+    // ✅ 안전 네비게이션: 스택 제거 후 로그인으로
+    _pushReplaceAll('/login');
   }
 
   // ✅ 결제 시뮬레이터 호출 (중복탭 방지 + 성공 시 목록 갱신)
@@ -225,6 +234,86 @@ class _MyPageScreenState extends State<MyPageScreen> {
     }
   }
 
+  // ⭐ 리뷰: BottomSheet로 작성 UI + 저장 호출
+  Future<void> _writeReview(int rentalId) async {
+    int rating = 5;
+    final controller = TextEditingController();
+
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16, right: 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+            top: 12,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("후기 작성", style: Theme.of(ctx).textTheme.titleMedium),
+              const SizedBox(height: 10),
+
+              StatefulBuilder(
+                builder: (c, setS) => Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(5, (i) {
+                    final filled = i < rating;
+                    return IconButton(
+                      iconSize: 28,
+                      onPressed: () => setS(() => rating = i + 1),
+                      icon: Icon(filled ? Icons.star : Icons.star_border),
+                      color: filled ? Colors.amber : cs.outline,
+                    );
+                  }),
+                ),
+              ),
+
+              const SizedBox(height: 6),
+              TextField(
+                controller: controller,
+                maxLines: 4,
+                maxLength: 300,
+                decoration: const InputDecoration(
+                  hintText: "이용 후기를 적어주세요 (선택)",
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text("저장"),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (ok == true) {
+      final res = await _api.createReview(
+        rentalId: rentalId,
+        rating: rating,
+        comment: controller.text.trim().isEmpty ? null : controller.text.trim(),
+      );
+      if (!mounted) return;
+      final success = res != null;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(success ? "후기를 등록했습니다." : "후기 등록 실패")));
+      // ✅ 저장 성공 시 즉시 목록 갱신 (버튼 숨김 등 반영)
+      if (success) await _load();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -288,6 +377,10 @@ class _MyPageScreenState extends State<MyPageScreen> {
                         final status = (r['status'] ?? '').toString();
                         final uStatus = status.toUpperCase();
                         final isClosed = uStatus.contains('CLOSED');
+
+                        // ⭐ 이미 후기 작성 여부(백엔드 필드 대응)
+                        final hasReview =
+                            (r['has_review'] == true) || (r['review_id'] != null);
 
                         // ✅ 로컬 기준 날짜로 비교
                         final startDT = _parseDate(startIso);
@@ -437,6 +530,20 @@ class _MyPageScreenState extends State<MyPageScreen> {
                                         icon: const Icon(Icons.check_circle_outline),
                                         label: const Text("반납 완료"),
                                         onPressed: () => _actConfirmReturn(id),
+                                      ),
+
+                                    // ⭐ 리뷰: CLOSED일 때만 후기 작성 보이기 + 이미 작성한 경우 숨김
+                                    if (isClosed && !hasReview)
+                                      FilledButton.tonalIcon(
+                                        icon: const Icon(Icons.rate_review_outlined),
+                                        label: const Text("후기 작성하기"),
+                                        onPressed: () => _writeReview(id),
+                                      ),
+                                    if (isClosed && hasReview)
+                                      OutlinedButton.icon(
+                                        onPressed: null,
+                                        icon: const Icon(Icons.check_outlined),
+                                        label: const Text("후기 작성됨"),
                                       ),
                                   ],
                                 ),
