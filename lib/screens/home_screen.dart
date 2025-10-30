@@ -10,25 +10,21 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // ✅ 싱글턴 사용: new 대신 instance
+  // ✅ 싱글턴 통일
   final ApiService _api = ApiService.instance;
 
   bool _loading = true;
   String? _error;
   List<Product> _items = [];
 
+  // ⭐ 평점 캐시: { productId: {'avg': double, 'count': int} }
+  final Map<int, Map<String, dynamic>> _ratingCache = {};
+  final Set<int> _loadingRating = {};
+
   @override
   void initState() {
     super.initState();
     _load();
-  }
-
-  // ---- Safe nav helpers ----
-  void _push(String route, {Object? args}) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      Navigator.pushNamed(context, route, arguments: args);
-    });
   }
 
   Future<void> _load() async {
@@ -43,6 +39,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _items = data;
         _loading = false;
       });
+      // ⭐ 평점 미리 가져오기 (가벼운 N개 호출; MVP 기준)
+      _prefetchRatings(data.map((e) => e.id).toList());
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -52,14 +50,27 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _goAdd() async {
-    // ✅ 관리자만 접근
-    if (!_api.isAdmin) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('관리자만 상품을 등록할 수 있어요.')),
-      );
-      return;
+  Future<void> _prefetchRatings(List<int> ids) async {
+    for (final id in ids) {
+      // 이미 있는 건 스킵
+      if (_ratingCache.containsKey(id) || _loadingRating.contains(id)) continue;
+      _fetchRating(id);
     }
+  }
+
+  Future<void> _fetchRating(int productId) async {
+    _loadingRating.add(productId);
+    try {
+      final summary = await _api.getProductRatingSummary(productId);
+      if (!mounted) return;
+      _ratingCache[productId] = summary ?? {};
+      setState(() {});
+    } finally {
+      _loadingRating.remove(productId);
+    }
+  }
+
+  Future<void> _goAdd() async {
     final result = await Navigator.pushNamed(context, '/add_product');
     if (result == true && mounted) {
       await _load();
@@ -70,14 +81,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openDetail(Product p) {
-    _push('/product', args: p.id);
+    Navigator.pushNamed(context, '/product', arguments: p.id);
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isAdmin = _api.isAdmin;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Sallae Mallae'),
@@ -85,27 +94,15 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             tooltip: '내 대여 내역',
             icon: const Icon(Icons.receipt_long_outlined),
-            onPressed: () => _push('/mypage'),
+            onPressed: () => Navigator.pushNamed(context, '/mypage'),
           ),
-          // ✅ 관리자 빠른 이동(선택): 보이면 편함
-          if (isAdmin)
-            IconButton(
-              tooltip: '관리자: 승인 대기',
-              icon: const Icon(Icons.admin_panel_settings_outlined),
-              onPressed: () => _push('/admin/pending'),
-            ),
         ],
       ),
-
-      // ✅ 관리자에게만 등록 FAB 노출
-      floatingActionButton: isAdmin
-          ? FloatingActionButton.extended(
-              onPressed: _goAdd,
-              icon: const Icon(Icons.add),
-              label: const Text('상품 등록'),
-            )
-          : null,
-
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _goAdd,
+        icon: const Icon(Icons.add),
+        label: const Text('상품 등록'),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
@@ -145,9 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                   const SizedBox(height: 10),
                                   Text(
-                                    isAdmin
-                                        ? '오른쪽 아래 + 버튼으로 상품을 등록해보세요.'
-                                        : '관리자가 상품을 등록하면 여기에서 볼 수 있어요.',
+                                    '오른쪽 아래 + 버튼으로 상품을 등록해보세요.',
                                     style: TextStyle(color: theme.colorScheme.outline),
                                     textAlign: TextAlign.center,
                                   ),
@@ -172,6 +167,24 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ? _api.absolute(p.imageUrl)
                                 : null;
 
+                            // ⭐ 평점 표시 준비
+                            final summary = _ratingCache[p.id];
+                            final isLoading = _loadingRating.contains(p.id) && summary == null;
+                            final hasData = summary != null &&
+                                summary['avg'] != null &&
+                                summary['count'] != null &&
+                                (summary['count'] as int) > 0;
+                            final avg = hasData ? (summary!['avg'] as num).toDouble() : 0.0;
+                            final count = hasData ? (summary!['count'] as int) : 0;
+
+                            // 첫 진입 시 캐시 없으면 비동기 로드 트리거
+                            if (summary == null && !isLoading) {
+                              // 프레임 이후 안전 호출
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (mounted) _fetchRating(p.id);
+                              });
+                            }
+
                             return InkWell(
                               onTap: () => _openDetail(p),
                               borderRadius: BorderRadius.circular(16),
@@ -185,23 +198,40 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.stretch,
                                   children: [
-                                    // 이미지
+                                    // 이미지 + ⭐평점 배지 오버레이
                                     AspectRatio(
                                       aspectRatio: 1.2,
-                                      child: img == null
-                                          ? Container(
-                                              color: theme.colorScheme.surfaceVariant,
-                                              child: const Icon(Icons.photo_outlined, size: 42),
-                                            )
-                                          : Image.network(
-                                              img,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (_, __, ___) => Container(
-                                                color: theme.colorScheme.surfaceVariant,
-                                                child: const Icon(Icons.broken_image),
-                                              ),
-                                            ),
+                                      child: Stack(
+                                        children: [
+                                          Positioned.fill(
+                                            child: img == null
+                                                ? Container(
+                                                    color: theme.colorScheme.surfaceVariant,
+                                                    child: const Icon(Icons.photo_outlined, size: 42),
+                                                  )
+                                                : Image.network(
+                                                    img,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (_, __, ___) => Container(
+                                                      color: theme.colorScheme.surfaceVariant,
+                                                      child: const Icon(Icons.broken_image),
+                                                    ),
+                                                  ),
+                                          ),
+                                          // ⭐ 배지
+                                          Positioned(
+                                            left: 8,
+                                            top: 8,
+                                            child: hasData
+                                                ? _RatingBadge(avg: avg, count: count)
+                                                : (isLoading
+                                                    ? _RatingBadge.loading()
+                                                    : const SizedBox.shrink()),
+                                          ),
+                                        ],
+                                      ),
                                     ),
+
                                     // 정보
                                     Padding(
                                       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -254,17 +284,72 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ✅ 천단위 콤마 버그 수정: 오른쪽부터 3자리마다 콤마
   String _formatNumber(num n) {
-    final negative = n < 0;
-    final s = n.abs().toStringAsFixed(0);
-    final chars = s.split('').reversed.toList();
+    final s = n.toStringAsFixed(0);
     final buf = StringBuffer();
-    for (int i = 0; i < chars.length; i++) {
-      if (i != 0 && i % 3 == 0) buf.write(',');
-      buf.write(chars[i]);
+    for (int i = 0; i < s.length; i++) {
+      final idx = s.length - i;
+      buf.write(s[i]);
+      final rem = (idx - 1);
+      if (rem > 0 && rem % 3 == 0) buf.write(',');
     }
-    final withCommas = buf.toString().split('').reversed.join();
-    return negative ? '-$withCommas' : withCommas;
+    return buf.toString();
   }
 }
+
+class _RatingBadge extends StatelessWidget {
+  final double? avg;
+  final int? count;
+  final bool skeleton;
+
+  const _RatingBadge({super.key, required this.avg, required this.count}) : skeleton = false;
+
+  const _RatingBadge.loading({super.key})
+      : avg = null,
+        count = null,
+        skeleton = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    if (skeleton) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: cs.surface.withOpacity(.85),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.star_border, size: 16, color: cs.outline),
+            const SizedBox(width: 4),
+            Container(width: 26, height: 10, color: cs.surfaceContainerHighest,),
+          ],
+        ),
+      );
+    }
+    if (avg == null || count == null || count == 0) {
+      // 후기 없음 → 배지 미표시가 기본이지만, 보여주고 싶다면 여기 커스텀
+      return const SizedBox.shrink();
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: cs.surface.withOpacity(.9),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.star, size: 16, color: Colors.amber),
+          const SizedBox(width: 4),
+          Text(
+            '${avg!.toStringAsFixed(1)} (${count!})',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
