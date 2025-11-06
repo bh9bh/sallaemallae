@@ -1,0 +1,7 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+passlib==1.7.4
+bcrypt==3.2.2    # (passlib 1.7.4면 보통 불필요하지만, 충돌나면 이 라인 유지)
+python-multipart==0.0.9
+pydantic==2.9.2
+SQLAlchemy==2.0.36

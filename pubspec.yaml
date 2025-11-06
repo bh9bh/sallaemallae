@@ -1,0 +1,26 @@
+name: sallaemallae
+description: A rental platform MVP
+publish_to: "none"
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:        # ✅ DatePicker 등 로컬라이즈 필수
+    sdk: flutter
+  dio: ^5.5.0
+  shared_preferences: ^2.3.2
+  file_picker: ^8.0.0
+  # image_picker는 Windows에선 보통 안 씁니다. 유지해도 되지만 필요 없으면 제거 가능.
+  image_picker: ^1.0.7
+  intl: ^0.20.2                 # ✅ 권장 버전 (Flutter와 호환성 좋음)
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
